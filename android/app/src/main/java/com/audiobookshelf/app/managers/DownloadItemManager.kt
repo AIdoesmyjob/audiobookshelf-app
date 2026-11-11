@@ -17,7 +17,6 @@ import com.getcapacitor.JSObject
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -606,7 +605,7 @@ class DownloadItemManager(
     val required = if (part.isInternalStorage) remaining else remaining + expectedSize
     val key = storageKey(staging)
     val fs = statFsFor(staging)
-    val headroom = max(MIN_FREE_SPACE_BYTES, fs.totalBytes / 20L)
+    val headroom = freeSpaceHeadroom(fs)
     val alreadyReserved = reservations.filterKeys { storageKey(File(it)) == key }.values.sum()
     if (fs.availableBytes - alreadyReserved < required + headroom) return false
     reservations[part.destinationPath] = required
@@ -616,7 +615,15 @@ class DownloadItemManager(
   private fun hasAvailableSpace(part: DownloadItemPart): Boolean {
     val staging = File(part.destinationPath)
     val fs = statFsFor(staging)
-    return fs.availableBytes >= max(MIN_FREE_SPACE_BYTES, fs.totalBytes / 20L)
+    return fs.availableBytes >= freeSpaceHeadroom(fs)
+  }
+
+  /**
+   * Free space to always leave on the device: 5% of the volume, but at least 100 MB and at most
+   * 1 GB. Uncapped, a 1 TB phone needed 50 GB free before any download would start (#2053).
+   */
+  private fun freeSpaceHeadroom(fs: StatFs): Long {
+    return (fs.totalBytes / 20L).coerceIn(MIN_FREE_SPACE_BYTES, MAX_FREE_SPACE_HEADROOM_BYTES)
   }
 
   private fun statFsFor(staging: File): StatFs {
@@ -789,6 +796,7 @@ class DownloadItemManager(
     const val MAX_AUTH_RETRIES = 2
     const val PERSIST_INTERVAL_MS = 2_000L
     const val MIN_FREE_SPACE_BYTES = 100L * 1024L * 1024L
+    const val MAX_FREE_SPACE_HEADROOM_BYTES = 1024L * 1024L * 1024L
     const val UNKNOWN_PART_RESERVATION_BYTES = 100L * 1024L * 1024L
   }
 }
