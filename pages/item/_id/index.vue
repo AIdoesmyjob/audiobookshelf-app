@@ -89,7 +89,7 @@
           <div v-if="podcastAuthor" class="text-sm">{{ podcastAuthor }}</div>
           <div v-else-if="bookAuthors?.length" class="text-sm">
             <template v-for="(author, index) in bookAuthors">
-              <nuxt-link :key="author.id" :to="`/bookshelf/library?filter=authors.${$encode(author.id)}`" class="underline whitespace-nowrap">{{ author.name }}</nuxt-link
+              <nuxt-link :key="author.id" :to="`/bookshelf/library?filter=authors.${$encode(author.id)}`" class="underline">{{ author.name }}</nuxt-link
               ><span :key="`${author.id}-comma`" v-if="index < bookAuthors.length - 1">, </span>
             </template>
           </div>
@@ -820,14 +820,18 @@ export default {
   max-width: 150vw !important;
 }
 
+#metadata > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 @media only screen and (max-width: 500px) {
   #metadata {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
   }
 }
 @media only screen and (min-width: 500px) {
   #metadata {
-    grid-template-columns: auto 1fr auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
   }
 }
 </style>

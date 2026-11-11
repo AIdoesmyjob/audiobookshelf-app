@@ -373,6 +373,7 @@ export default {
         message: confirmMessage
       })
       if (value) {
+        await this.$store.dispatch('closePlaybackIfPlayingLocal', { localLibraryItemId: this.localLibraryItem.id, localEpisodeId: this.selectedEpisode.id })
         var res = await AbsFileSystem.deleteTrackFromItem({ id: this.localLibraryItem.id, trackLocalFileId: localFile.id, trackContentUrl: this.selectedEpisode.audioTrack.contentUrl })
         if (res && res.id) {
           this.$toast.success('Deleted track successfully')
@@ -399,6 +400,7 @@ export default {
         message: confirmMessage
       })
       if (value) {
+        await this.$store.dispatch('closePlaybackIfPlayingLocal', { localLibraryItemId: this.localLibraryItem.id })
         var res = await AbsFileSystem.deleteTrackFromItem({ id: this.localLibraryItem.id, trackLocalFileId: this.selectedAudioTrack.localFileId, trackContentUrl: this.selectedAudioTrack.contentUrl })
         if (res && res.id) {
           this.$toast.success('Deleted track successfully')
@@ -416,6 +418,7 @@ export default {
         message: confirmMessage
       })
       if (value) {
+        await this.$store.dispatch('closePlaybackIfPlayingLocal', { localLibraryItemId: this.localLibraryItem.id })
         var res = await AbsFileSystem.deleteItem(this.localLibraryItem)
         if (res && res.success) {
           this.$toast.success('Deleted Successfully')

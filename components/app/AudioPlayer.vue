@@ -493,7 +493,9 @@ export default {
 
       // If 4 seconds or less into current chapter, then go to previous
       if (this.currentTime - this.currentChapter.start <= 4) {
-        const currChapterIndex = this.chapters.findIndex((ch) => Number(ch.start) <= this.currentTime && Number(ch.end) >= this.currentTime)
+        // Use the same chapter that currentChapter resolved (end is exclusive), otherwise at an
+        //  exact chapter boundary the previous chapter matches and we skip back two chapters
+        const currChapterIndex = this.chapters.indexOf(this.currentChapter)
         if (currChapterIndex > 0) {
           const prevChapter = this.chapters[currChapterIndex - 1]
           this.seek(prevChapter.start)

@@ -1,6 +1,6 @@
 <template>
   <div class="relative">
-    <input v-model="input" ref="input" :autofocus="autofocus" :type="type" :disabled="disabled" :readonly="readonly" autocorrect="off" autocapitalize="none" autocomplete="off" :placeholder="placeholder" class="py-2 w-full outline-none bg-primary disabled:text-fg-muted" :class="inputClass" @keyup="keyup" />
+    <input v-model="input" ref="input" :autofocus="autofocus" :type="type" :disabled="disabled" :readonly="readonly" autocorrect="off" autocapitalize="none" autocomplete="off" :placeholder="placeholder" class="py-2 w-full outline-none bg-primary disabled:text-fg-muted" :class="inputClass" @keyup="keyup" @blur="$emit('blur')" />
     <div v-if="prependIcon" class="absolute top-0 left-0 h-full px-2 flex items-center justify-center">
       <span class="material-symbols text-lg">{{ prependIcon }}</span>
     </div>
@@ -61,8 +61,9 @@ export default {
       if (this.disabled) classes.push('text-fg-muted')
       else classes.push('text-fg')
 
-      if (this.prependIcon) classes.push('pl-10 pr-2')
-      else classes.push('px-2')
+      classes.push(this.prependIcon ? 'pl-10' : 'pl-2')
+      // Leave room for the clear button / append icon drawn over the right side of the input
+      classes.push(this.clearable || this.appendIcon ? 'pr-10' : 'pr-2')
 
       if (!this.borderless) classes.push('border border-border')
       return classes.join(' ')

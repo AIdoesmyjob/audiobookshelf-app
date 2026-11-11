@@ -304,12 +304,17 @@ export default ({ store, app }, inject) => {
       eventBus.$emit('close-modal')
       return
     }
-    if (store.state.showReader) {
-      eventBus.$emit('close-ebook')
+    if (store.state.showSideDrawer) {
+      store.commit('setShowSideDrawer', false)
       return
     }
+    // The full screen player is shown on top of the reader, so minimize it first
     if (store.state.playerIsFullscreen) {
       eventBus.$emit('minimize-player')
+      return
+    }
+    if (store.state.showReader) {
+      eventBus.$emit('close-ebook')
       return
     }
     if (!canGoBack) {
