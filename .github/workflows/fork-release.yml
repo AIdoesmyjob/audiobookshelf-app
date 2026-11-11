@@ -1,0 +1,95 @@
+name: Fork auto-update release
+
+# Builds a signed APK for every change merged to master on the fork and publishes it as a GitHub
+# release. Obtainium on the phone watches these releases and installs each new build as an update.
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - 'ios/**'
+      - 'readme.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'AIdoesmyjob/audiobookshelf-app'
+    runs-on: ubuntu-latest
+    env:
+      KEEP_RELEASES: 10
+    steps:
+      - name: checkout sources
+        uses: actions/checkout@v4
+
+      - name: use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: install dependencies
+        run: npm ci --omit=optional
+
+      - name: build Nuxt project
+        run: npm run generate
+
+      - name: copy to Android project
+        run: npx cap sync android
+
+      - name: restore signing key
+        env:
+          FORK_KEYSTORE_B64: ${{ secrets.FORK_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$FORK_KEYSTORE_B64" ]; then echo "FORK_KEYSTORE_B64 secret is missing" >&2; exit 1; fi
+          printf %s "$FORK_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/fork-signing.p12"
+
+      - name: build signed APK
+        env:
+          FORK_KEYSTORE_FILE: ${{ runner.temp }}/fork-signing.p12
+          FORK_KEYSTORE_PASSWORD: ${{ secrets.FORK_KEYSTORE_PASSWORD }}
+          FORK_KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+          FORK_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./android/gradlew assembleDebug -p android --no-daemon
+
+      - name: remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/fork-signing.p12"
+
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="fork-${{ github.run_number }}"
+          short_sha="$(git rev-parse --short HEAD)"
+          apk="audiobookshelf-${tag}-${short_sha}.apk"
+          mv android/app/build/outputs/apk/debug/app-debug.apk "$apk"
+          {
+            echo "Automatic build of \`${short_sha}\` on master."
+            echo
+            git log -1 --format='%s'
+            echo
+            echo "sha256: \`$(sha256sum "$apk" | cut -d' ' -f1)\`"
+          } > notes.md
+          gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Audiobookshelf fork build ${{ github.run_number }} (${short_sha})" --notes-file notes.md --latest
+
+      - name: prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep '^fork-' | sort -t- -k2 -n -r | tail -n +$((KEEP_RELEASES + 1)) \
+            | while read -r old; do gh release delete "$old" --yes --cleanup-tag; done

@@ -48,11 +48,34 @@ android {
       ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
   }
+  // Fork auto-update builds (.github/workflows/fork-release.yml): signed with a persistent key
+  //  from CI secrets so each new build installs as an update over the previous one, and given a
+  //  versionCode that grows with every CI run. Without these env vars the build is unchanged.
+  def forkKeystore = System.getenv("FORK_KEYSTORE_FILE")
+  def forkBuildNumber = System.getenv("FORK_BUILD_NUMBER")
+  if (forkKeystore) {
+    signingConfigs {
+      fork {
+        storeFile file(forkKeystore)
+        storePassword System.getenv("FORK_KEYSTORE_PASSWORD")
+        keyAlias System.getenv("FORK_KEY_ALIAS")
+        keyPassword System.getenv("FORK_KEYSTORE_PASSWORD")
+      }
+    }
+  }
+  if (forkBuildNumber) {
+    defaultConfig.versionCode = defaultConfig.versionCode * 10000 + forkBuildNumber.toInteger()
+    defaultConfig.versionName = defaultConfig.versionName + "-fork." + forkBuildNumber
+  }
+
   buildTypes {
     debug {
       applicationIdSuffix ".debug"
       versionNameSuffix "-debug"
       minifyEnabled false
+      if (forkKeystore) {
+        signingConfig signingConfigs.fork
+      }
       proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
     }
     release {
