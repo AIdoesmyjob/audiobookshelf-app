@@ -10,6 +10,8 @@ on:
 
 jobs:
   build:
+    # Publishes upstream's GitHub Pages test page; forks use fork-release.yml instead
+    if: github.repository == 'advplyr/audiobookshelf-app'
     runs-on: ubuntu-latest
     steps:
       - name: checkout sources
