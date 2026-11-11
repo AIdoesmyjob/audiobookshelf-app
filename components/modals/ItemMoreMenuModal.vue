@@ -411,6 +411,7 @@ export default {
         message: this.$getString('MessageConfirmDeleteLocalEpisode', [localFile.basePath])
       })
       if (value) {
+        await this.$store.dispatch('closePlaybackIfPlayingLocal', { localLibraryItemId: this.localLibraryItemId, localEpisodeId: this.localEpisode.id })
         const res = await AbsFileSystem.deleteTrackFromItem({ id: this.localLibraryItemId, trackLocalFileId: localFile.id, trackContentUrl: localEpisodeAudioTrack.contentUrl })
         if (res?.id) {
           if (this.isLocal) {
@@ -436,6 +437,7 @@ export default {
         message: this.$strings.MessageConfirmDeleteLocalFiles
       })
       if (value) {
+        await this.$store.dispatch('closePlaybackIfPlayingLocal', { localLibraryItemId: this.localLibraryItem.id })
         const res = await AbsFileSystem.deleteItem(this.localLibraryItem)
         if (res?.success) {
           if (this.isLocal) {

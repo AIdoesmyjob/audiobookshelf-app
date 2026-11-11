@@ -314,8 +314,21 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
     // Without this, the connector's default metadata provider rebuilds metadata from the
     // player's own state on media item transitions/timeline changes, dropping the cover art
     // bitmap that PlaybackSession.resolveCoverBitmapAsync resolves separately.
-    mediaSessionConnector.setMediaMetadataProvider { _ ->
-      currentPlaybackSession?.getMediaMetadataCompat(ctx) ?: MediaMetadataCompat.Builder().build()
+    mediaSessionConnector.setMediaMetadataProvider { player ->
+      val metadata = currentPlaybackSession?.getMediaMetadataCompat(ctx)
+      if (metadata == null) {
+        MediaMetadataCompat.Builder().build()
+      } else if (player.mediaItemCount > 1 && player.duration != C.TIME_UNSET) {
+        // The session position the connector publishes is the position within the current
+        //  media item (audio file). For books split over several files the duration must be
+        //  the current file's too, otherwise the notification/Android Auto seek bar shows the
+        //  wrong position and seeking from it (onSeekTo adds the track offset) lands elsewhere.
+        MediaMetadataCompat.Builder(metadata)
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, player.duration)
+                .build()
+      } else {
+        metadata
+      }
     }
     val queueNavigator: TimelineQueueNavigator =
             object : TimelineQueueNavigator(mediaSession) {

@@ -164,7 +164,7 @@
       <p class="uppercase text-xs font-semibold text-fg-muted mb-2 mt-10">{{ $strings.HeaderAndroidAutoSettings }}</p>
       <div class="py-3 flex items-center">
         <p class="pr-4 w-36">{{ $strings.LabelAndroidAutoBrowseLimitForGrouping }}</p>
-        <ui-text-input type="number" v-model="settings.androidAutoBrowseLimitForGrouping" style="width: 145px; max-width: 145px" @input="androidAutoBrowseLimitForGroupingUpdated" />
+        <ui-text-input type="number" v-model="settings.androidAutoBrowseLimitForGrouping" style="width: 145px; max-width: 145px" @input="androidAutoBrowseLimitForGroupingUpdated" @blur="androidAutoBrowseLimitForGroupingBlur" />
         <span class="material-symbols text-xl ml-2" @click.stop="showInfo('androidAutoBrowseLimitForGrouping')">info</span>
       </div>
       <div class="py-3 flex items-center">
@@ -544,9 +544,16 @@ export default {
       this.saveSettings()
     },
     androidAutoBrowseLimitForGroupingUpdated(val) {
-      if (!val) return // invalid times return falsy
-      if (val > 1000) val = 1000
-      if (val < 30) val = 30
+      // Only persist in-range values while typing (e.g. "1" on the way to "100"); blur clamps the rest
+      const num = Number(val)
+      if (!Number.isInteger(num) || num < 30 || num > 1000) return
+      this.saveSettings()
+    },
+    androidAutoBrowseLimitForGroupingBlur() {
+      const num = Number(this.settings.androidAutoBrowseLimitForGrouping)
+      const clamped = Number.isFinite(num) ? Math.min(1000, Math.max(30, Math.round(num))) : 100
+      if (clamped === num) return
+      this.settings.androidAutoBrowseLimitForGrouping = clamped
       this.saveSettings()
     },
     hapticFeedbackUpdated(val) {

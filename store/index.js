@@ -103,6 +103,13 @@ export const getters = {
 }
 
 export const actions = {
+  // Playback from local files that are about to be deleted fails on the next seek or track change
+  async closePlaybackIfPlayingLocal({ state }, { localLibraryItemId, localEpisodeId = null }) {
+    const session = state.currentPlaybackSession
+    if (!session || !localLibraryItemId || session.localLibraryItem?.id !== localLibraryItemId) return
+    if (localEpisodeId && session.localEpisodeId !== localEpisodeId) return
+    await AbsAudioPlayer.closePlayback()
+  },
   // Listen for network connection
   async setupNetworkListener({ state, commit }) {
     if (state.isNetworkListenerInit) return
