@@ -54,9 +54,17 @@ import com.google.android.exoplayer2.ui.PlayerNotificationManager
 import com.google.android.exoplayer2.upstream.*
 import java.util.*
 import kotlin.concurrent.schedule
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 
 const val SLEEP_TIMER_WAKE_UP_EXPIRATION = 120000L // 2m
+// After the audio output disconnects (e.g. leaving the car), media button presses that would
+// resume playback are ignored for this long. Head units often send buttons while shutting down.
+const val MEDIA_BUTTON_RESUME_BLOCK_AFTER_OUTPUT_LOST_MS = 5000L
 const val PLAYER_CAST = "cast-player"
 const val PLAYER_EXO = "exo-player"
 
@@ -116,7 +124,13 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
   var currentPlaybackSession: PlaybackSession? = null
   private var initialPlaybackRate: Float? = null
 
+  private val metadataScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+  private var metadataArtJob: Job? = null
+
   private var isAndroidAuto = false
+
+  private lateinit var audioOutputMonitor: AudioOutputMonitor
+  private var audioOutputLostAtElapsedMs: Long? = null
 
   // The following are used for the shake detection
   private var isShakeSensorRegistered: Boolean = false
@@ -193,11 +207,13 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
     isClosed = true
     DeviceManager.widgetUpdater?.onPlayerChanged(this)
 
+    audioOutputMonitor.unregister()
     playerNotificationManager.setPlayer(null)
     mPlayer.release()
     castPlayer?.release()
     mediaSession.release()
     mediaProgressSyncer.reset()
+    metadataScope.cancel()
 
     super.onDestroy()
   }
@@ -295,6 +311,12 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
     transportControls = mediaController.transportControls
 
     mediaSessionConnector = MediaSessionConnector(mediaSession)
+    // Without this, the connector's default metadata provider rebuilds metadata from the
+    // player's own state on media item transitions/timeline changes, dropping the cover art
+    // bitmap that PlaybackSession.resolveCoverBitmapAsync resolves separately.
+    mediaSessionConnector.setMediaMetadataProvider { _ ->
+      currentPlaybackSession?.getMediaMetadataCompat(ctx) ?: MediaMetadataCompat.Builder().build()
+    }
     val queueNavigator: TimelineQueueNavigator =
             object : TimelineQueueNavigator(mediaSession) {
               override fun getSupportedQueueNavigatorActions(player: Player): Long {
@@ -368,6 +390,41 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
 
     initializeMPlayer()
     currentPlayer = mPlayer
+
+    audioOutputMonitor =
+            AudioOutputMonitor(
+                    this,
+                    onAudioOutputLost = { reason -> onAudioOutputLost(reason) },
+                    // e.g. earbuds connecting right after leaving the car: their buttons should work
+                    onPrivateOutputConnected = { audioOutputLostAtElapsedMs = null }
+            )
+    audioOutputMonitor.register()
+  }
+
+  /**
+   * Called when the headphones/car/Android Auto output goes away. Pause so the book doesn't keep
+   * playing through the phone speaker. Cast playback is unaffected by the phone's audio output.
+   */
+  private fun onAudioOutputLost(reason: String) {
+    audioOutputLostAtElapsedMs = SystemClock.elapsedRealtime()
+    if (getMediaPlayer() == PLAYER_CAST) return
+
+    if (currentPlayer.playWhenReady) {
+      AbsLogger.info(tag, "onAudioOutputLost: Pausing playback ($reason)")
+      pause()
+    } else {
+      Log.d(tag, "onAudioOutputLost: Not playing ($reason)")
+    }
+  }
+
+  /**
+   * True shortly after the audio output was lost. Media button "play" (and multi-click resume)
+   * arriving in that window comes from the departing car/headset, not from the listener.
+   */
+  fun isMediaButtonResumeBlocked(): Boolean {
+    if (getMediaPlayer() == PLAYER_CAST) return false
+    val lostAt = audioOutputLostAtElapsedMs ?: return false
+    return SystemClock.elapsedRealtime() - lostAt < MEDIA_BUTTON_RESUME_BLOCK_AFTER_OUTPUT_LOST_MS
   }
 
   private fun initializeMPlayer() {
@@ -430,8 +487,6 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
 
     isClosed = false
 
-    val metadata = playbackSession.getMediaMetadataCompat(ctx)
-    mediaSession.setMetadata(metadata)
     val mediaItems = playbackSession.getMediaItems(ctx)
     val playbackRateToUse = playbackRate ?: initialPlaybackRate ?: 1f
     initialPlaybackRate = playbackRate
@@ -458,6 +513,13 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
     DeviceManager.setLastPlaybackSession(
             playbackSession
     ) // Save playback session to use when app is closed
+
+    metadataArtJob?.cancel()
+    metadataArtJob =
+            playbackSession.resolveCoverBitmapAsync(ctx, metadataScope) {
+              mediaSessionConnector.invalidateMediaSessionMetadata()
+            }
+    mediaSessionConnector.invalidateMediaSessionMetadata()
 
     AbsLogger.info("PlayerNotificationService", "preparePlayer: Started playback session for item ${currentPlaybackSession?.mediaItemId}. MediaPlayer ${currentPlaybackSession?.mediaPlayer}")
     // Notify client

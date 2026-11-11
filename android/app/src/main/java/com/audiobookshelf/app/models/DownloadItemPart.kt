@@ -1,6 +1,5 @@
 package com.audiobookshelf.app.models
 
-import android.app.DownloadManager
 import android.net.Uri
 import android.util.Log
 import com.audiobookshelf.app.data.AudioTrack
@@ -15,7 +14,8 @@ data class DownloadItemPart(
   val id: String,
   val downloadItemId: String,
   val filename: String,
-  val fileSize: Long,
+  var fileSize: Long,
+  @JsonIgnore val destinationPath: String,
   val finalDestinationPath:String,
   val serverPath: String,
   val localFolderName: String,
@@ -31,28 +31,31 @@ data class DownloadItemPart(
   @JsonIgnore val uri: Uri,
   @JsonIgnore val destinationUri: Uri,
   @JsonIgnore val finalDestinationUri: Uri,
+  @JsonIgnore var completedDestinationUri: String?,
   val finalDestinationSubfolder: String,
   var downloadId: Long?,
+  @JsonIgnore var lastUpdateTime: Long?,
   var progress: Long,
-  var bytesDownloaded: Long
+  var bytesDownloaded: Long,
+  @JsonIgnore var retryCount: Int = 0,
+  @JsonIgnore var authRetryCount: Int = 0,
+  @JsonIgnore var waitingForSpace: Boolean = false,
+  @JsonIgnore var reusedExistingFile: Boolean = false
 ) {
   companion object {
     fun make(downloadItemId:String, filename:String, fileSize: Long, destinationFile: File, finalDestinationFile: File, subfolder:String, serverPath:String, localFolder: LocalFolder, ebookFile: EBookFile?, audioTrack: AudioTrack?, episode: PodcastEpisode?) :DownloadItemPart {
       val destinationUri = Uri.fromFile(destinationFile)
       val finalDestinationUri = Uri.fromFile(finalDestinationFile)
+      val rawCover = if (serverPath.endsWith("/cover")) "?raw=1" else ""
+      val downloadUri = Uri.parse("${DeviceManager.serverAddress}${serverPath}$rawCover")
 
-      var downloadUrl = "${DeviceManager.serverAddress}${serverPath}?token=${DeviceManager.token}"
-      if (serverPath.endsWith("/cover")) {
-        downloadUrl += "&raw=1" // Download raw cover image
-      }
-
-      val downloadUri = Uri.parse(downloadUrl)
       Log.d("DownloadItemPart", "Audio File Destination Uri: $destinationUri | Final Destination Uri: $finalDestinationUri | Server Path $serverPath")
       return DownloadItemPart(
         id = DeviceManager.getBase64Id(finalDestinationFile.absolutePath),
         downloadItemId,
         filename = filename,
         fileSize = fileSize,
+        destinationPath = destinationFile.absolutePath,
         finalDestinationPath = finalDestinationFile.absolutePath,
         serverPath = serverPath,
         localFolderName = localFolder.name,
@@ -68,10 +71,13 @@ data class DownloadItemPart(
         uri = downloadUri,
         destinationUri = destinationUri,
         finalDestinationUri = finalDestinationUri,
+        completedDestinationUri = null,
         finalDestinationSubfolder = subfolder,
         downloadId = null,
+        lastUpdateTime = null,
         progress = 0,
-        bytesDownloaded = 0
+        bytesDownloaded = 0,
+        reusedExistingFile = false
       )
     }
   }
@@ -79,16 +85,4 @@ data class DownloadItemPart(
   @get:JsonIgnore
   val isInternalStorage get() = localFolderId.startsWith("internal-")
 
-  @get:JsonIgnore
-  val serverUrl get() = uri.toString()
-
-  @JsonIgnore
-  fun getDownloadRequest(): DownloadManager.Request {
-    val dlRequest = DownloadManager.Request(uri)
-    dlRequest.setTitle(filename)
-    dlRequest.setDescription("Downloading to $localFolderName with filename $filename")
-    dlRequest.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-    dlRequest.setDestinationUri(destinationUri)
-    return dlRequest
-  }
 }

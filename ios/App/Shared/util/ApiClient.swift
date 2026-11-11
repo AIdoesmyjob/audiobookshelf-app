@@ -183,6 +183,7 @@ class ApiClient {
         ]
         
         let refreshRequest = AF.request("\(serverConfig.address)/auth/refresh", method: .post, headers: refreshHeaders)
+            .validate(statusCode: 200..<300)
         
         refreshRequest.responseDecodable(of: RefreshResponse.self) { response in
             switch response.result {
@@ -190,7 +191,6 @@ class ApiClient {
                 guard let user = refreshResponse.user,
                       !user.accessToken.isEmpty else {
                     AbsLogger.error(message: "handleTokenRefresh: No access token in refresh response for server \(serverConfig.name)")
-                    handleRefreshFailure()
                     callback?(nil)
                     return
                 }
@@ -206,7 +206,8 @@ class ApiClient {
                 
             case .failure(let error):
                 AbsLogger.error(message: "handleTokenRefresh: Refresh request failed for server \(serverConfig.name): \(error)")
-                handleRefreshFailure()
+                let status = response.response?.statusCode
+                if status == 401 || status == 403 { handleRefreshFailure() }
                 callback?(nil)
             }
         }
@@ -313,12 +314,10 @@ class ApiClient {
     private static func handleRefreshFailure() {
         AbsLogger.info(message: "handleRefreshFailure: Token refresh failed, clearing session")
         
-        // Clear the current server connection
+        let configId = Store.serverConfig?.id
         Store.serverConfig = nil
-        
-        // Remove refresh token from secure storage
-        if let serverConfig = Store.serverConfig {
-            _ = secureStorage.removeRefreshToken(serverConnectionConfigId: serverConfig.id)
+        if let configId = configId {
+            _ = secureStorage.removeRefreshToken(serverConnectionConfigId: configId)
         }
         
         // Notify webview frontend about token refresh failure
@@ -511,7 +510,8 @@ class ApiClient {
     
     public static func reportLocalPlaybackProgress(_ session: PlaybackSession) async -> Bool {
         return await withCheckedContinuation { continuation in
-            postResourceWithTokenRefresh(endpoint: "api/session/local", parameters: session) { success in
+            let payload = PartialPlaybackSessionSyncPayload(from: session, includeDeviceInfo: true)
+            postResourceWithTokenRefresh(endpoint: "api/session/local", parameters: payload) { success in
                 continuation.resume(returning: success)
             }
         }
@@ -519,7 +519,10 @@ class ApiClient {
     
     public static func reportAllLocalPlaybackSessions(_ sessions: [PlaybackSession]) async -> Bool {
         return await withCheckedContinuation { continuation in
-            let payload = LocalPlaybackSessionSyncAllPayload(sessions: sessions, deviceInfo: sessions.first?.deviceInfo)
+            let payload = LocalPlaybackSessionSyncAllPayload(
+                sessions: sessions.map { PartialPlaybackSessionSyncPayload(from: $0, includeDeviceInfo: false) },
+                deviceInfo: sessions.first?.deviceInfo
+            )
             postResourceWithTokenRefresh(endpoint: "api/session/local-all", parameters: payload) { success in
                 continuation.resume(returning: success)
             }
@@ -668,8 +671,44 @@ struct LocalMediaProgressSyncResultsPayload: Codable {
     var numLocalProgressUpdates: Int?
 }
 
-struct LocalPlaybackSessionSyncAllPayload: Codable {
-    var sessions: [PlaybackSession]
+struct PartialPlaybackSessionSyncPayload: Encodable {
+    let id: String
+    let userId: String?
+    let libraryItemId: String?
+    let episodeId: String?
+    let mediaType: String
+    let displayTitle: String?
+    let displayAuthor: String?
+    let duration: Double
+    let playMethod: Int
+    let startedAt: Double?
+    let updatedAt: Double?
+    let timeListening: Double
+    let currentTime: Double
+    let mediaPlayer: String
+    let deviceInfo: [String: String?]?
+
+    init(from session: PlaybackSession, includeDeviceInfo: Bool) {
+        id = session.id
+        userId = session.userId
+        libraryItemId = session.libraryItemId
+        episodeId = session.episodeId
+        mediaType = session.mediaType
+        displayTitle = session.displayTitle
+        displayAuthor = session.displayAuthor
+        duration = session.duration
+        playMethod = session.playMethod
+        startedAt = session.startedAt
+        updatedAt = session.updatedAt
+        timeListening = session.timeListening
+        currentTime = session.currentTime
+        mediaPlayer = session.mediaPlayer
+        deviceInfo = includeDeviceInfo ? session.deviceInfo : nil
+    }
+}
+
+struct LocalPlaybackSessionSyncAllPayload: Encodable {
+    var sessions: [PartialPlaybackSessionSyncPayload]
     var deviceInfo: [String: String?]?
 }
 
