@@ -16,6 +16,7 @@ class MediaSessionCallback(var playerNotificationService:PlayerNotificationServi
 
   private var mediaButtonClickCount: Int = 0
   private var mediaButtonClickTimeout: Long = 1000  //ms
+  @Volatile private var lastMediaButtonKeyCode: Int = KeyEvent.KEYCODE_UNKNOWN
 
   override fun onPrepare() {
     Log.d(tag, "ON PREPARE MEDIA SESSION COMPAT")
@@ -183,12 +184,12 @@ class MediaSessionCallback(var playerNotificationService:PlayerNotificationServi
 
             if (playerNotificationService.mPlayer.isPlaying) {
               if (0 == mediaButtonClickCount) playerNotificationService.pause()
-              handleMediaButtonClickCount()
+              handleMediaButtonClickCount(keyEvent.keyCode)
             } else {
               if (0 == mediaButtonClickCount) {
-                playerNotificationService.play()
+                resumeFromMediaButton()
               }
-              handleMediaButtonClickCount()
+              handleMediaButtonClickCount(keyEvent.keyCode)
             }
           }
           KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
@@ -211,21 +212,21 @@ class MediaSessionCallback(var playerNotificationService:PlayerNotificationServi
               if (playerNotificationService.mPlayer.isPlaying)
                 playerNotificationService.pause()
               else
-                playerNotificationService.play()
+                resumeFromMediaButton()
             }
-            handleMediaButtonClickCount()
+            handleMediaButtonClickCount(keyEvent.keyCode)
           }
           KeyEvent.KEYCODE_MEDIA_PLAY -> {
             Log.d(tag, "handleCallMediaButton: Media Play")
             if (0 == mediaButtonClickCount) {
-              playerNotificationService.play()
+              resumeFromMediaButton()
             }
-            handleMediaButtonClickCount()
+            handleMediaButtonClickCount(keyEvent.keyCode)
           }
           KeyEvent.KEYCODE_MEDIA_PAUSE -> {
             Log.d(tag, "handleCallMediaButton: Media Pause")
             if (0 == mediaButtonClickCount) playerNotificationService.pause()
-            handleMediaButtonClickCount()
+            handleMediaButtonClickCount(keyEvent.keyCode)
           }
           KeyEvent.KEYCODE_MEDIA_NEXT -> {
             playerNotificationService.jumpForward()
@@ -246,11 +247,20 @@ class MediaSessionCallback(var playerNotificationService:PlayerNotificationServi
     return true
   }
 
-  private fun handleMediaButtonClickCount() {
+  private fun resumeFromMediaButton() {
+    if (playerNotificationService.isMediaButtonResumeBlocked()) {
+      Log.i(tag, "Ignoring media button play: audio output was just disconnected")
+      return
+    }
+    playerNotificationService.play()
+  }
+
+  private fun handleMediaButtonClickCount(keyCode: Int) {
+    lastMediaButtonKeyCode = keyCode
     mediaButtonClickCount++
     if (1 == mediaButtonClickCount) {
       Timer().schedule(mediaButtonClickTimeout) {
-        mediaBtnHandler.sendEmptyMessage(mediaButtonClickCount)
+        mediaBtnHandler.obtainMessage(mediaButtonClickCount, lastMediaButtonKeyCode, 0).sendToTarget()
         mediaButtonClickCount = 0
       }
     }
@@ -261,11 +271,25 @@ class MediaSessionCallback(var playerNotificationService:PlayerNotificationServi
   object : Handler(){
     override fun handleMessage(msg: Message) {
       super.handleMessage(msg)
+      if (msg.what < 2) return
+
+      // A multi-click ending in an explicit pause key is not a gesture: head units and some
+      //  headsets send several pause events at once (e.g. when the car shuts off). Treating it
+      //  as a double-click would rewind and resume playback through the phone speaker.
+      if (msg.arg1 == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+        Log.i(tag, "Ignoring multi-click of ${msg.what} ending in a pause key")
+        return
+      }
+      if (playerNotificationService.isMediaButtonResumeBlocked()) {
+        Log.i(tag, "Ignoring multi-click of ${msg.what}: audio output was just disconnected")
+        return
+      }
+
       if (2 == msg.what) {
         playerNotificationService.jumpBackward()
         playerNotificationService.play()
       }
-      else if (msg.what >= 3) {
+      else {
         playerNotificationService.jumpForward()
         playerNotificationService.play()
       }
